@@ -1,0 +1,5 @@
+{
+    "track": "../input/track.tck",
+    "classification": "../input/classification.mat",
+    "tracts": "../input/tracts"
+}

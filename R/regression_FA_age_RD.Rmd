@@ -1,0 +1,569 @@
+---
+title: "regressions"
+author: "Francesco Pisu"
+date: "11/15/2021"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+# Imports, paths and data loading
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# wrangling packages
+library(here) # here makes a project transportable
+library(janitor) # clean_names
+library(readxl) # read excel, duh!
+library(data.table) # magical data frames
+library(magrittr) # pipes
+library(stringr) # string functions
+library(forcats) # factor functions
+library(dplyr)
+library(openxlsx) # write xlsx
+
+# analysis packages
+library(emmeans) # the workhorse for inference
+library(nlme) # gls and some lmm
+library(lme4) # linear mixed models
+library(lmerTest) # linear mixed model inference
+library(afex) # ANOVA linear models
+library(glmmTMB) # generalized linear models
+library(MASS) # negative binomial and some other functions
+library(car) # model checking and ANOVA
+library(DHARMa) # model checking
+library(RVAideMemoire)
+
+
+# graphing packages
+library(ggsci) # color palettes
+library(ggpubr) # publication quality plots
+library(ggforce) # better jitter
+library(ggeffects)
+library(visreg)
+library(cowplot) # combine plots
+library(knitr) # kable tables
+library(kableExtra) # kable_styling tables
+library(ggiraphExtra)
+library(patchwork)
+
+# ggplot_the_model.R packages not loaded above
+library(insight)
+library(lazyWeave)
+
+
+# use here from the here package
+here <- here::here
+# use clean_names from the janitor package
+clean_names <- janitor::clean_names
+
+# load functions used by this text written by me
+# ggplot_the_model.R needs to be in the folder "R"
+# if you didn't download this and add to your R folder in your
+# project, then this line will cause an error
+source_path <- here("R", "ggplot_the_model.R")
+source(source_path)
+
+data_folder <- "data"
+image_folder <- "figures"
+output_folder <- "results"
+
+file_name <- "df.xlsx"
+file_path <- here(data_folder, file_name)
+df <- read_excel(file_path) %>% data.table()
+df$gender <- ifelse(df$sex == 'M', 0, 1)
+```
+
+```{r}
+subjects <- sort(unique(df$sub))
+subIDs <- c()
+
+for (i in 1:length(subjects)) {
+  subIDs[i] <- sprintf("%03d", subjects[i])
+}
+
+d <- data.frame(subIDs)
+colnames(d) <- c("subject")
+j <- toJSON(d)
+```
+
+
+# Utilities
+```{r}
+print_coefs <- function(model) {
+  model_coeff <- summary(model) %>%
+    coef()
+  model_confint <- confint(model)
+  model_coeff <- cbind(model_coeff, model_confint)
+  model_coeff %>% kable(digits=c(4, 4, 2, 3, 4, 4))
+}
+```
+
+
+## Using Robust OLS
+```{r}
+# recupera i nomi delle strutture
+tracts <- unique(df$structure)
+
+tract_names <- c()
+
+# not adjusted
+age_coefs_na <- c()
+age_low_cis_na <- c()
+age_upper_cis_na <- c()
+age_t_na <- c()
+age_P_na <- c()
+
+# adjusted age coeff
+age_coefs_adj <- c()
+age_low_cis_adj <- c()
+age_upper_cis_adj <- c()
+age_t_adj <- c()
+age_P_adj <- c()
+  
+# adjusted RD coeff
+rd_coefs_adj <- c()
+rd_low_cis_adj <- c()
+rd_upper_cis_adj <- c()
+rd_t_adj <- c()
+rd_P_adj <- c()
+
+for (i in 1:length(tracts)) {
+  tract_name <- tracts[i]
+  print(tract_name)
+  tract <- df[structure == tract_name]
+  
+  m_na <- lmrob(fa_mean ~ age, data=tract)
+  m_adj <- lmrob(fa_mean ~ age + rd_mean, data=tract)
+  
+  tract_names <- c(tract_names, tract_name)
+  
+  # extract coefficients
+  m_na_coeffs <- summary(m_na) %>% coef()
+  m_adj_coeffs <- summary(m_adj) %>% coef()
+  
+  # extract confidence intervals
+  m_na_cis <- confint(m_na)
+  m_adj_cis <- confint(m_adj)
+  
+  # c(4, 4, 2, 3, 4, 4)
+  # non adjusted age coefficient
+  age_coefs_na <- c(age_coefs_na, round(m_na_coeffs["age", "Estimate"], 6))
+  age_low_cis_na <- c(age_low_cis_na, round(m_na_cis["age", "2.5 %"], 5))
+  age_upper_cis_na <- c(age_upper_cis_na, round(m_na_cis["age", "97.5 %"], 5))
+  age_t_na <- c(age_t_na, round(m_na_coeffs["age", "t value"], 3))
+  age_P_na <- c(age_P_na, round(m_na_coeffs["age", "Pr(>|t|)"], 4))
+  
+  # adjusted age coefficient
+  age_coefs_adj <- c(age_coefs_adj, round(m_adj_coeffs["age", "Estimate"], 5))
+  age_low_cis_adj <- c(age_low_cis_adj, round(m_adj_cis["age", "2.5 %"], 5))
+  age_upper_cis_adj <- c(age_upper_cis_adj, round(m_adj_cis["age", "97.5 %"], 5)) 
+  age_t_adj <- c(age_t_adj, round(m_adj_coeffs["age", "t value"], 2))
+  age_P_adj <- c(age_P_adj, round(m_adj_coeffs["age", "Pr(>|t|)"], 4))
+    
+  # adjusted RD coefficient
+  rd_coefs_adj <- c(rd_coefs_adj, round(m_adj_coeffs["rd_mean", "Estimate"], 5))
+  rd_low_cis_adj <- c(rd_low_cis_adj, round(m_adj_cis["rd_mean", "2.5 %"], 5))
+  rd_upper_cis_adj <- c(rd_upper_cis_adj, round(m_adj_cis["rd_mean", "97.5 %"], 5))  
+  rd_t_adj <- c(rd_t_adj, round(m_adj_coeffs["rd_mean", "t value"], 2))
+  rd_P_adj <- c(rd_P_adj, round(m_adj_coeffs["rd_mean", "Pr(>|t|)"], 4))  
+}
+```
+```{r}
+regre_coeffs <- data.frame(tract_names, age_coefs_na, age_low_cis_na, age_upper_cis_na,
+                           age_t_na, age_P_na,
+           age_coefs_adj, age_low_cis_adj, age_upper_cis_adj,
+           age_t_adj, age_P_adj, rd_coefs_adj, rd_low_cis_adj,
+           rd_upper_cis_adj, rd_t_adj, rd_P_adj)
+
+regre_coeffs
+```
+
+```{r}
+write.xlsx(regre_coeffs, 'regression_coefficients_robustlm.xlsx')
+```
+
+```{r}
+regre_coeffs
+```
+
+# Regression plots mosaic
+## Utilities
+```{r}
+plot_regressions <- function(model, model_adj, tract_data, xvar, xlabel, ylabel, title) {
+  preds_df_not_adj <- ggemmeans(model, xvar)
+  preds_df_adj <- ggemmeans(model_adj, xvar)
+  #preds1 <- data.frame(preds_df_not_adj$age, preds_df_not_adj$age$predicted, preds_df_adj$predicted)
+  preds1 <- data.frame(preds_df_not_adj$x, preds_df_not_adj$predicted, preds_df_adj$predicted)
+  
+  plt <- ggplot(preds1, aes(preds_df_not_adj$x, preds_df_not_adj$predicted)) + 
+    geom_line(aes(preds_df_not_adj$x, preds_df_not_adj$predicted), color='turquoise4', linetype = '81', size = 0.5) + # non corretta
+    geom_line(data=preds1, aes(preds_df_not_adj$x, preds_df_adj$predicted), color='firebrick2', size = 0.5)  + 
+    #geom_point(data=tract_data, colour="lightgray", size=0.5, aes(age, fa_mean)) +
+    labs(x = xlabel, y = ylabel, title=title) + 
+    theme_classic()  
+  
+  return(plt)
+}
+```
+
+```{r}
+scaleFUN <- function(x) sprintf("%.3f", x)
+my_pretty_breaks <- function(n = 3, ...) {
+    n_default <- n
+    function(x, n = n_default) {
+      minx <- min(x)
+      maxx <- max(x)
+      midx <- (minx+maxx)/2
+      x2 <- midx+(x-midx)*0.9
+      breaks <- pretty(x2, n, ...)
+      names(breaks) <- attr(breaks, "labels")
+      breaks
+    }
+}
+
+plot_robust_regressions <- function(model, model_adj, tract_data, xvar, xlabel, ylabel, title) {
+  preds_df_not_adj <- ggpredict(model, xvar)
+  preds_df_adj <- ggpredict(model_adj, xvar)
+  #preds1 <- data.frame(preds_df_not_adj$age, preds_df_not_adj$age$predicted, preds_df_adj$predicted)
+  preds1 <- data.frame(preds_df_not_adj$x, preds_df_not_adj$predicted, preds_df_adj$predicted)
+  
+  min_y <- min(preds_df_not_adj$predicted, preds_df_adj$predicted)
+  max_y <- max(preds_df_not_adj$predicted, preds_df_adj$predicted)
+  plt <- ggplot(preds1, aes(preds_df_not_adj$x, preds_df_not_adj$predicted)) + 
+    scale_y_continuous(labels=scaleFUN, 
+                       breaks=round(seq(min_y, max_y, by = (max_y - min_y)/3),3)) +
+    geom_line(aes(preds_df_not_adj$x, preds_df_not_adj$predicted), color='turquoise4', linetype = '81', size = 0.5) + # non corretta
+    geom_line(data=preds1, aes(preds_df_not_adj$x, preds_df_adj$predicted), color='firebrick2', size = 0.5)  + 
+    #geom_point(data=tract_data, colour="lightgray", size=0.5, aes(age, fa_mean)) +
+    labs(x = xlabel, y = ylabel, title=title) + 
+    
+    theme_classic()  
+  
+  return(plt)
+}
+```
+
+## Accumulate individual plots (one for each tract) in plot_list
+```{r}
+tracts <- unique(df$structure)
+plot_list <- list()
+
+for (i in 1:length(tracts)) {
+  tract_name <- tracts[i]
+  tract <- df[structure == tract_name]
+  
+  m_na <- lmrob(fa_mean ~ age, data=tract)
+  m_adj <- lmrob(fa_mean ~ age + rd_mean, data=tract)
+  
+  plt <- plot_robust_regressions(m_na, m_adj, tract, "age", "Age", "Mean FA", tract_name) 
+  #plots <- c(plots, plt)
+  plot_list[[i]] <- plt
+}
+```
+
+
+```{r}
+theme_fst_col <- theme(axis.text.y = element_text(size=6),
+                       axis.ticks.y = element_blank(),
+                       axis.title.y = element_text(size=12),
+                       axis.text.x = element_blank(),
+                       axis.ticks.x = element_blank(),
+                       axis.title.x = element_blank(),
+                       plot.margin = margin(r = 1) )
+
+bottom_left <- theme(axis.text.y = element_text(size=6),
+                     axis.ticks.y = element_blank(),
+                     axis.title.y = element_text(size=12),
+                     axis.text.x = element_text(size=6),
+                     axis.ticks.x = element_blank(),
+                     axis.title.x = element_text(size=12),
+                     plot.margin = margin(r = 1) )
+
+
+inner_theme <- theme(axis.text.y = element_text(size=6),
+                     axis.ticks.y = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.x = element_blank(),
+                     axis.ticks.x = element_blank(),
+                     axis.title.x = element_blank(),
+                     plot.margin = margin(r = 1, l = 1) )
+
+bottom_inner_theme <- theme(axis.text.y = element_text(size=6),
+                     axis.ticks.y = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.x = element_text(size=6),
+                     axis.ticks.x = element_blank(),
+                     axis.title.x = element_text(size=12),
+                     plot.margin = margin(r = 1, l = 1) )
+
+empty_plt <- ggplot() + theme_void()
+
+global_y_label <- ggplot(data.frame(l = "Mean Fractional Anisotropy", x = 1, y = 1)) +
+      geom_text(aes(x, y, label = l), angle = 90) + 
+      theme_void() +
+      coord_cartesian(clip = "off")
+
+global_x_label <- ggplot(data.frame(l = "Age (years)", x = 1, y = 1)) +
+      geom_text(aes(x, y, label = l)) + 
+      theme_void() +
+      coord_cartesian(clip = "off")
+
+#plots <- plots + plot_layout(ncol=5)
+#plots <- wrap_plots(plots, ncol=5)
+#plots <- (reduce(plot_list, `+`)) + plot_layout(ncol=5)
+
+#plots <- (plot_list[[1]] + plot_list[[2]] + plot_list[[3]] + plot_list[[4]] +
+#          plot_list[[5]] + plot_list[[6]] + plot_list[[7]] + plot_list[[8]] +
+#          plot_list[[9]] + plot_list[[10]] + plot_list[[11]] + plot_list[[12]] +
+#          plot_list[[13]] + plot_list[[14]] + plot_list[[15]] + plot_list[[16]] +
+#          plot_list[[17]] + plot_list[[18]] + plot_list[[19]] + plot_list[[20]] +
+#          plot_list[[21]] + plot_list[[22]] + plot_list[[23]] + plot_list[[24]] +
+#          plot_list[[25]] + plot_list[[26]] + plot_list[[27]] + plot_list[[28]] +
+#          plot_list[[29]] + plot_list[[30]] + plot_list[[31]] + plot_list[[32]] +
+#          plot_list[[33]] + plot_list[[34]] + plot_list[[35]] + plot_list[[36]] +
+#          plot_list[[37]] + plot_list[[38]] + plot_list[[39]] + plot_list[[49]])+ plot_layout(ncol=5)
+plots <- reduce(plot_list[1:40], `+`) + plot_layout(ncol=5)
+
+# first row
+plots[[1]] = plots[[1]] + theme_fst_col
+for (i in 2:5) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# second row
+plots[[6]] = plots[[6]] + theme_fst_col
+for (i in 7:10) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# third row
+plots[[11]] = plots[[11]] + theme_fst_col
+for (i in 12:15) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# fourth row
+plots[[16]] = plots[[16]] + theme_fst_col
+for (i in 17:20) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# fifth row
+plots[[21]] = plots[[21]] + theme_fst_col
+for (i in 22:25) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# sixth row
+plots[[26]] = plots[[26]] + theme_fst_col
+for (i in 27:30) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# seventh row
+plots[[31]] = plots[[31]] + theme_fst_col
+for (i in 32:35) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# eigth row
+plots[[36]] = plots[[36]] + bottom_left
+for (i in 37:40) {
+  plots[[i]] = plots[[i]] + bottom_inner_theme
+}
+
+for (i in c(1,6,11,16,21,26,31,36)) {
+  plots[[i]]$labels$y <- " "
+}
+
+# get rid of x axis labels of bottom rows plots
+for (i in 36:40) {
+  plots[[i]]$labels$x <- " "
+}
+
+# add margins between plots
+plot_margin <- theme(plot.margin = unit(c(1,0,1,0), "cm"))
+
+for (i in 1:40) {
+  plots[[i]] = plots[[i]] + theme(plot.title = element_text(size=8),
+                                  plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+}
+
+gt <- patchwork::patchworkGrob(plots)
+
+# vjust: horizontal adjustment
+# hjust: vertical adjustment
+regression_plots <- gridExtra::grid.arrange(gt, 
+                        left=text_grob("Mean FA", vjust=1.5, size=12, rot = 90),
+                        bottom = text_grob("Age (years)", vjust=-1.0, size=12))
+```
+
+```{r}
+regression_plots
+```
+
+```{r}
+theme_fst_col <- theme(axis.text.y = element_text(size=5),
+                       axis.ticks.y = element_blank(),
+                       axis.title.y = element_text(size=12),
+                       axis.text.x = element_blank(),
+                       axis.ticks.x = element_blank(),
+                       axis.title.x = element_blank(),
+                       plot.margin = margin(r = 1) )
+
+bottom_left <- theme(axis.text.y = element_text(size=5),
+                     axis.ticks.y = element_blank(),
+                     axis.title.y = element_text(size=12),
+                     axis.text.x = element_text(size=5),
+                     axis.ticks.x = element_blank(),
+                     axis.title.x = element_text(size=12),
+                     plot.margin = margin(r = 1) )
+
+
+inner_theme <- theme(axis.text.y = element_text(size=5),
+                     axis.ticks.y = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.x = element_blank(),
+                     axis.ticks.x = element_blank(),
+                     axis.title.x = element_blank(),
+                     plot.margin = margin(r = 1, l = 1) )
+
+bottom_inner_theme <- theme(axis.text.y = element_text(size=5),
+                     axis.ticks.y = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.x = element_text(size=5),
+                     axis.ticks.x = element_blank(),
+                     axis.title.x = element_text(size=12),
+                     plot.margin = margin(r = 1, l = 1) )
+
+empty_plt <- ggplot() + theme_void()
+
+global_y_label <- ggplot(data.frame(l = "Mean Fractional Anisotropy", x = 1, y = 1)) +
+      geom_text(aes(x, y, label = l), angle = 90) + 
+      theme_void() +
+      coord_cartesian(clip = "off")
+
+global_x_label <- ggplot(data.frame(l = "Age (years)", x = 1, y = 1)) +
+      geom_text(aes(x, y, label = l)) + 
+      theme_void() +
+      coord_cartesian(clip = "off")
+
+#plots <- plots + plot_layout(ncol=5)
+#plots <- wrap_plots(plots, ncol=5)
+#plots <- (reduce(plot_list, `+`)) + plot_layout(ncol=5)
+
+#plots <- (plot_list[[1]] + plot_list[[2]] + plot_list[[3]] + plot_list[[4]] +
+#          plot_list[[5]] + plot_list[[6]] + plot_list[[7]] + plot_list[[8]] +
+#          plot_list[[9]] + plot_list[[10]] + plot_list[[11]] + plot_list[[12]] +
+#          plot_list[[13]] + plot_list[[14]] + plot_list[[15]] + plot_list[[16]] +
+#          plot_list[[17]] + plot_list[[18]] + plot_list[[19]] + plot_list[[20]] +
+#          plot_list[[21]] + plot_list[[22]] + plot_list[[23]] + plot_list[[24]] +
+#          plot_list[[25]] + plot_list[[26]] + plot_list[[27]] + plot_list[[28]] +
+#          plot_list[[29]] + plot_list[[30]] + plot_list[[31]] + plot_list[[32]] +
+#          plot_list[[33]] + plot_list[[34]] + plot_list[[35]] + plot_list[[36]] +
+#          plot_list[[37]] + plot_list[[38]] + plot_list[[39]] + plot_list[[49]])+ plot_layout(ncol=5)
+plots <- reduce(plot_list, `+`) + plot_layout(ncol=6)
+
+# first row
+plots[[1]] = plots[[1]] + theme_fst_col
+for (i in 2:6) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# second row
+plots[[7]] = plots[[7]] + theme_fst_col
+for (i in 8:12) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# third row
+plots[[13]] = plots[[13]] + theme_fst_col
+for (i in 14:18) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# fourth row
+plots[[19]] = plots[[19]] + theme_fst_col
+for (i in 20:24) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# fifth row
+plots[[25]] = plots[[25]] + theme_fst_col
+for (i in 26:30) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# sixth row
+plots[[31]] = plots[[31]] + theme_fst_col
+for (i in 32:36) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# seventh row
+plots[[37]] = plots[[37]] + theme_fst_col
+for (i in 38:42) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# eigth row
+plots[[43]] = plots[[43]] + theme_fst_col
+for (i in 44:48) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# ninth row
+plots[[49]] = plots[[49]] + theme_fst_col
+for (i in 50:54) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# tenth row
+plots[[55]] = plots[[55]] + theme_fst_col
+for (i in 56:60) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# eleventh row
+plots[[61]] = plots[[61]] + theme_fst_col
+for (i in 62:66) {
+  plots[[i]] = plots[[i]] + inner_theme
+}
+
+# 12 row
+plots[[67]] = plots[[67]] + bottom_left
+for (i in 68:72) {
+  plots[[i]] = plots[[i]] + bottom_inner_theme
+}
+
+for (i in c(1,7,13,19,25,31,37,43,49,55,61,67)) {
+  plots[[i]]$labels$y <- " "
+}
+
+# get rid of x axis labels of bottom rows plots
+for (i in 67:72) {
+  plots[[i]]$labels$x <- " "
+}
+
+# add margins between plots
+plot_margin <- theme(plot.margin = unit(c(1,0,1,0), "cm"))
+
+
+for (i in 1:72) {
+  plots[[i]] = plots[[i]] + theme(plot.title = element_text(size=8),
+                                  plot.margin = unit(c(0.1,0.15,0.1,0.15), "cm"))
+}
+
+gt <- patchwork::patchworkGrob(plots)
+
+# vjust: horizontal adjustment
+# hjust: vertical adjustment
+regression_plots <- gridExtra::grid.arrange(gt, 
+                        left=text_grob("Mean FA", vjust=1.5, size=12, rot = 90),
+                        bottom = text_grob("Age (years)", vjust=-0.0, size=12))
+```
+
+

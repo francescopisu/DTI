@@ -1,0 +1,678 @@
+---
+title: "robust regressions with morphologic measures"
+author: "Francesco Pisu"
+date: "11/15/2021"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+# Imports, paths and data loading
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# wrangling packages
+library(here) # here makes a project transportable
+library(janitor) # clean_names
+library(readxl) # read excel, duh!
+library(data.table) # magical data frames
+library(magrittr) # pipes
+library(stringr) # string functions
+library(forcats) # factor functions
+library(dplyr)
+library(openxlsx) # write xlsx
+library(purrr)
+
+# analysis packages
+library(emmeans) # the workhorse for inference
+library(nlme) # gls and some lmm
+library(lme4) # linear mixed models
+library(lmerTest) # linear mixed model inference
+library(afex) # ANOVA linear models
+library(glmmTMB) # generalized linear models
+library(MASS) # negative binomial and some other functions
+library(car) # model checking and ANOVA
+library(DHARMa) # model checking
+library(RVAideMemoire)
+library(robustbase)
+
+
+# graphing packages
+library(ggsci) # color palettes
+library(ggpubr) # publication quality plots
+library(ggforce) # better jitter
+library(ggeffects)
+library(visreg)
+library(cowplot) # combine plots
+library(knitr) # kable tables
+library(kableExtra) # kable_styling tables
+library(ggiraphExtra)
+library(patchwork)
+
+# ggplot_the_model.R packages not loaded above
+library(insight)
+library(lazyWeave)
+
+
+# use here from the here package
+here <- here::here
+# use clean_names from the janitor package
+clean_names <- janitor::clean_names
+
+# load functions used by this text written by me
+# ggplot_the_model.R needs to be in the folder "R"
+# if you didn't download this and add to your R folder in your
+# project, then this line will cause an error
+source_path <- here("R", "ggplot_the_model.R")
+source(source_path)
+
+data_folder <- "data"
+image_folder <- "figures"
+output_folder <- "results"
+
+file_name <- "df_with_stats.xlsx"
+file_path <- here(data_folder, file_name)
+df <- read_excel(file_path) %>% data.table()
+df$gender <- ifelse(df$sex == 'M', 0, 1)
+```
+
+# Utilities
+```{r}
+print_coefs <- function(model) {
+  model_coeff <- summary(model) %>%
+    coef()
+  model_confint <- confint(model)
+  model_coeff <- cbind(model_coeff, model_confint)
+  model_coeff %>% kable(digits=c(4, 4, 2, 3, 4, 4))
+}
+```
+
+# Correlations
+
+## Density ~ Age
+```{r}
+# Retrieve structures' names
+tracts <- unique(df$structure)
+
+tract_names <- c()
+
+# not adjusted
+r <- c()
+ci_low <- c()
+ci_up <- c()
+P <- c()
+
+for (i in 1:length(tracts)) {
+  tract_name <- tracts[i]
+  print(tract_name)
+  tract <- df[structure == tract_name]
+  
+  set.seed(1234)
+  c1 <- RVAideMemoire::spearman.ci(tract$age, tract$vol_length_ratio)
+  c2 <- cor.test(tract$age, tract$vol_length_ratio, method='spearman', exact=FALSE)
+  
+  tract_names <- c(tract_names, tract_name)
+
+  # correlation statistics
+  r <- c(r, round(c1$estimate, 6))
+  ci_low <- c(ci_low, round(c1$conf.int['Inf'], 5))
+  ci_up <- c(ci_up, round(c1$conf.int['Sup'], 5))
+  P <- c(P, round(c2$p.value, 4))
+}
+```
+
+```{r}
+cor_coefs <- data.frame(tract_names, r, ci_low, ci_up, P)
+write.xlsx(cor_coefs, 'spearman_coefs_age_density.xlsx')
+```
+
+## Volume ~ Age
+```{r}
+# Retrieve structures' names
+tracts <- unique(df$structure)
+
+tract_names <- c()
+
+# not adjusted
+r <- c()
+ci_low <- c()
+ci_up <- c()
+P <- c()
+
+for (i in 1:length(tracts)) {
+  tract_name <- tracts[i]
+  print(tract_name)
+  tract <- df[structure == tract_name]
+  
+  set.seed(1234)
+  c1 <- RVAideMemoire::spearman.ci(tract$age, tract$volume)
+  c2 <- cor.test(tract$age, tract$volume, method='spearman', exact=FALSE)
+  
+  tract_names <- c(tract_names, tract_name)
+  
+  # correlation statistics
+  r <- c(r, round(c1$estimate, 6))
+  ci_low <- c(ci_low, round(c1$conf.int['Inf'], 5))
+  ci_up <- c(ci_up, round(c1$conf.int['Sup'], 5))
+  P <- c(P, round(c2$p.value, 4))
+}
+```
+
+```{r}
+cor_coefs <- data.frame(tract_names, r, ci_low, ci_up, P)
+write.xlsx(cor_coefs, 'spearman_coefs_age_volume.xlsx')
+```
+
+## Total Length ~ Age
+```{r}
+# Retrieve structures' names
+tracts <- unique(df$structure)
+
+tract_names <- c()
+
+# not adjusted
+r <- c()
+ci_low <- c()
+ci_up <- c()
+P <- c()
+
+for (i in 1:length(tracts)) {
+  tract_name <- tracts[i]
+  print(tract_name)
+  tract <- df[structure == tract_name]
+  
+  set.seed(1234)
+  c1 <- RVAideMemoire::spearman.ci(tract$age, tract$total_length)
+  c2 <- cor.test(tract$age, tract$total_length, method='spearman', exact=FALSE)
+  
+  tract_names <- c(tract_names, tract_name)
+
+  # correlation statistics
+  r <- c(r, round(c1$estimate, 6))
+  ci_low <- c(ci_low, round(c1$conf.int['Inf'], 5))
+  ci_up <- c(ci_up, round(c1$conf.int['Sup'], 5))
+  P <- c(P, round(c2$p.value, 4))
+}
+```
+
+```{r}
+cor_coefs <- data.frame(tract_names, r, ci_low, ci_up, P)
+write.xlsx(cor_coefs, 'spearman_coefs_age_total_length.xlsx')
+```
+
+## Avg. Length ~ Age
+```{r}
+# Retrieve structures' names
+tracts <- unique(df$structure)
+
+tract_names <- c()
+
+# not adjusted
+r <- c()
+ci_low <- c()
+ci_up <- c()
+P <- c()
+
+for (i in 1:length(tracts)) {
+  tract_name <- tracts[i]
+  print(tract_name)
+  tract <- df[structure == tract_name]
+  
+  set.seed(1234)
+  c1 <- RVAideMemoire::spearman.ci(tract$age, tract$avg_streamline_length)
+  c2 <- cor.test(tract$age, tract$avg_streamline_length, method='spearman', exact=FALSE)
+  
+  tract_names <- c(tract_names, tract_name)
+
+  # correlation statistics
+  r <- c(r, round(c1$estimate, 6))
+  ci_low <- c(ci_low, round(c1$conf.int['Inf'], 5))
+  ci_up <- c(ci_up, round(c1$conf.int['Sup'], 5))
+  P <- c(P, round(c2$p.value, 4))
+}
+```
+
+```{r}
+cor_coefs <- data.frame(tract_names, r, ci_low, ci_up, P)
+write.xlsx(cor_coefs, 'spearman_coefs_age_avg_length.xlsx')
+```
+
+# Regressions
+
+```{r}
+compute_regression_coefs <- function(x, y, z, data) {
+  # recupera i nomi delle strutture
+  tracts <- unique(data$structure)
+  
+  tract_names <- c()
+  
+  # not adjusted
+  age_coefs_na <- c()
+  age_low_cis_na <- c()
+  age_upper_cis_na <- c()
+  age_t_na <- c()
+  age_P_na <- c()
+  
+  # adjusted age coeff
+  age_coefs_adj <- c()
+  age_low_cis_adj <- c()
+  age_upper_cis_adj <- c()
+  age_t_adj <- c()
+  age_P_adj <- c()
+    
+  # adjusted covariate coeff
+  cov_coefs_adj <- c()
+  cov_low_cis_adj <- c()
+  cov_upper_cis_adj <- c()
+  cov_t_adj <- c()
+  cov_P_adj <- c()
+  
+  for (i in 1:length(tracts)) {
+    tract_name <- tracts[i]
+    tract <- data[structure == tract_name]
+
+    formula_na = as.formula(paste(y, paste(c(x), collapse='+'), sep=' ~'))
+    formula_adj = as.formula(paste(y, paste(c(x, z), collapse='+'), sep=' ~'))
+    ctrl <- lmrob.control(refine.tol=1e-5)
+    m_na <- lmrob(formula_na, data=tract, control=ctrl)
+    m_adj <- lmrob(formula_adj, data=tract, control=ctrl)
+    
+    tract_names <- c(tract_names, tract_name)
+    
+    # extract coefficients
+    m_na_coeffs <- summary(m_na) %>% coef()
+    m_adj_coeffs <- summary(m_adj) %>% coef()
+    
+    # extract confidence intervals
+    m_na_cis <- confint(m_na)
+    m_adj_cis <- confint(m_adj)
+
+    # non adjusted age coefficient
+    age_coefs_na <- c(age_coefs_na, round(m_na_coeffs["age", "Estimate"], 6))
+    age_low_cis_na <- c(age_low_cis_na, round(m_na_cis["age", "2.5 %"], 5))
+    age_upper_cis_na <- c(age_upper_cis_na, round(m_na_cis["age", "97.5 %"], 5))
+    age_t_na <- c(age_t_na, round(m_na_coeffs["age", "t value"], 3))
+    age_P_na <- c(age_P_na, round(m_na_coeffs["age", "Pr(>|t|)"], 4))
+    
+    # adjusted age coefficient
+    age_coefs_adj <- c(age_coefs_adj, round(m_adj_coeffs["age", "Estimate"], 5))
+    age_low_cis_adj <- c(age_low_cis_adj, round(m_adj_cis["age", "2.5 %"], 5))
+    age_upper_cis_adj <- c(age_upper_cis_adj, round(m_adj_cis["age", "97.5 %"], 5)) 
+    age_t_adj <- c(age_t_adj, round(m_adj_coeffs["age", "t value"], 2))
+    age_P_adj <- c(age_P_adj, round(m_adj_coeffs["age", "Pr(>|t|)"], 4))
+      
+    # adjusted RD coefficient
+    cov_coefs_adj <- c(cov_coefs_adj, round(m_adj_coeffs[z, "Estimate"], 5))
+    cov_low_cis_adj <- c(cov_low_cis_adj, round(m_adj_cis[z, "2.5 %"], 5))
+    cov_upper_cis_adj <- c(cov_upper_cis_adj, round(m_adj_cis[z, "97.5 %"], 5))  
+    cov_t_adj <- c(cov_t_adj, round(m_adj_coeffs[z, "t value"], 2))
+    cov_P_adj <- c(cov_P_adj, round(m_adj_coeffs[z, "Pr(>|t|)"], 4))  
+  }
+  
+  regre_coeffs <- data.frame(tract_names, age_coefs_na, age_low_cis_na, 
+                             age_upper_cis_na, age_t_na, age_P_na, age_coefs_adj, 
+                             age_low_cis_adj, age_upper_cis_adj, age_t_adj, 
+                             age_P_adj, cov_coefs_adj, cov_low_cis_adj, 
+                             cov_upper_cis_adj, cov_t_adj, cov_P_adj)  
+  
+  filename <- sprintf("regression_coefs_robustlm_%s_age_%s.xlsx", y, z)
+  write.xlsx(regre_coeffs, filename)
+}
+```
+
+## RD
+
+### Age and volume
+```{r}
+compute_regression_coefs(x='age', y='rd_mean', z='volume', data=df)
+```
+
+### Age and avg length
+```{r}
+compute_regression_coefs(x='age', y='rd_mean', z='avg_streamline_length', data=df)
+```
+
+### Age and density
+```{r}
+compute_regression_coefs(x='age', y='rd_mean', z='vol_length_ratio', data=df)
+```
+
+## AD
+
+### Age and volume
+```{r}
+compute_regression_coefs(x='age', y='ad_mean', z='volume', data=df)
+```
+
+### Age and avg length
+```{r}
+compute_regression_coefs(x='age', y='ad_mean', z='avg_streamline_length', data=df)
+```
+
+### Age and density
+```{r}
+compute_regression_coefs(x='age', y='ad_mean', z='vol_length_ratio', data=df)
+```
+
+## MD
+### Age and volume
+```{r}
+compute_regression_coefs(x='age', y='md_mean', z='volume', data=df)
+```
+
+### Age and avg length
+```{r}
+compute_regression_coefs(x='age', y='md_mean', z='avg_streamline_length', data=df)
+```
+
+### Age and density
+```{r}
+compute_regression_coefs(x='age', y='md_mean', z='vol_length_ratio', data=df)
+```
+
+
+
+
+# Mosaic plots of morphologic measures vs Age
+## Length ~ Age
+```{r}
+ggplot(df, aes(x=age, y=avg_streamline_length)) +
+    stat_smooth(method=function(formula, data, weights) lmrob(formula,data)) +
+    stat_cor(method='spearman',
+             p.accuracy=0.001, 
+             r.accuracy=0.01,
+             size=10) +
+    facet_wrap(~structure, ncol=6, scales='free') +
+    theme(strip.text = element_text(size=20))
+```
+
+## Density ~ Age
+```{r}
+ggplot(df, aes(x=age, y=vol_length_ratio)) +
+    stat_smooth(method=function(formula, data, weights) lmrob(formula,data)) +
+    stat_cor(method='spearman',
+             p.accuracy=0.001, 
+             r.accuracy=0.01,
+             size=10) +
+    facet_wrap(~structure, ncol=6, scales='free') +
+    theme(strip.text = element_text(size=20))
+```
+
+## Volume ~ Age
+```{r}
+ggplot(df, aes(x=age, y=volume)) +
+    stat_smooth(method=function(formula, data, weights) lmrob(formula,data)) +
+    stat_cor(method='spearman',
+             p.accuracy=0.001, 
+             r.accuracy=0.01,
+             size=10) +
+    facet_wrap(~structure, ncol=6, scales='free') +
+    theme(strip.text = element_text(size=20))
+```
+
+
+# New version of regression's mosaic plot with covariates: 
+MD, AD, RD vs Age and correction for Volume, Density and Length
+
+
+```{r}
+scaleFUN <- function(x) sprintf("%.3f", x)
+
+plot_rob_reg_with_morph <- function(model, models_adj, cov_labels, xvar, xlabel, ylabel, title) {
+  # Predictions for non-adjusted model
+  preds_na <- ggpredict(model, xvar)
+  
+  # Start building the predictions dataframe
+  # 1. Add predictions non non adjusted model
+  preds <- data.frame(preds_na$x, preds_na$predicted, preds_na$predicted)
+  colnames(preds) <- c('x', 'preds_na', 'preds_adj')
+  preds[['Legend']] <- 'No adj.'
+  
+  # for each adjusted model, extract predictions and add to preds dataframe
+  for (i in 1:length(models_adj)) {
+    cova <- cov_labels[i]
+    model_adj <- models_adj[[i]]
+    
+    # extract and add predictions for current adjusted model
+    preds_adj <- ggpredict(model_adj, xvar)  
+    preds_adj <- data.frame(preds_na$x, preds_na$predicted, preds_adj$predicted)
+    colnames(preds_adj) <- c('x', 'preds_na', 'preds_adj')
+    preds_adj[['Legend']] <- cova
+    
+    preds <- rbind(preds, preds_adj)    
+  }
+  
+  # convert Legend column to factor
+  preds$Legend <- as.factor(preds$Legend)
+  
+  # reorder levels of Legend
+  levels(preds$Legend) <- c('Volume', 'Density', 'Length', 'No Adj.')
+  
+  min_y <- min(preds$preds_na, preds$preds_adj)
+  max_y <- max(preds$preds_na, preds$preds_adj)
+  plt <- ggplot(preds, aes(x=x, y=preds_adj, colour=Legend, group=Legend)) + 
+    scale_y_continuous(labels=scaleFUN, 
+                       breaks=round(seq(min_y, max_y, by = (max_y - min_y)/4),3)) +
+    geom_line() +
+    labs(x = xlabel, y = ylabel, title=title) +
+    theme_classic() + 
+    theme(legend.position="bottom")
+  
+  return(plt)
+}
+```
+
+## Make MD plots
+```{r}
+covariates <- c('volume', 'vol_length_ratio', 'avg_streamline_length')
+cov_labels <- c('Volume', 'Density', 'Length')
+
+y <- 'md_mean'
+x <- 'age'
+formula_na = as.formula(paste(y, paste(c(x), collapse='+'), sep=' ~'))
+ctrl <- lmrob.control(refine.tol=1e-5)
+
+md_plots <- list()
+
+for (t in 1:length(tracts)) {
+  tract_name <- tracts[t]
+  tract <- df[structure == tract_name]
+  
+  m_na <- lmrob(formula_na, data=tract, control=ctrl)
+  
+  models_adj <- list()
+  
+  for (i in 1:length(covariates)) {
+    cova <- covariates[i]
+    formula_adj = as.formula(paste(y, paste(c(x, cova), collapse='+'), sep=' ~'))
+    m_adj <- lmrob(formula_adj, data=tract, control=ctrl)
+    summary(m_adj)
+    
+    models_adj[[i]] <- m_adj
+  }
+  
+  plt <- plot_rob_reg_with_morph(model=m_na, 
+                          models_adj=models_adj, 
+                          cov_labels=cov_labels, 
+                          xvar='age',
+                          xlabel='Age (years)',
+                          ylabel=bquote('MD ' (mm/s^2)),
+                          title=tract_name
+                          )  
+  md_plots[[t]] <- plt
+}
+```
+
+## Make AD plots
+```{r}
+covariates <- c('volume', 'vol_length_ratio', 'avg_streamline_length')
+cov_labels <- c('Volume', 'Density', 'Length')
+
+y <- 'ad_mean'
+x <- 'age'
+formula_na = as.formula(paste(y, paste(c(x), collapse='+'), sep=' ~'))
+ctrl <- lmrob.control(refine.tol=1e-5)
+
+ad_plots <- list()
+
+for (t in 1:length(tracts)) {
+  tract_name <- tracts[t]
+  tract <- df[structure == tract_name]
+  
+  m_na <- lmrob(formula_na, data=tract, control=ctrl)
+  
+  models_adj <- list()
+  
+  for (i in 1:length(covariates)) {
+    cova <- covariates[i]
+    formula_adj = as.formula(paste(y, paste(c(x, cova), collapse='+'), sep=' ~'))
+    m_adj <- lmrob(formula_adj, data=tract, control=ctrl)
+    summary(m_adj)
+    
+    models_adj[[i]] <- m_adj
+  }
+  
+  plt <- plot_rob_reg_with_morph(model=m_na, 
+                          models_adj=models_adj, 
+                          cov_labels=cov_labels, 
+                          xvar='age',
+                          xlabel='Age (years)',
+                          ylabel=bquote('AD ' (mm/s^2)),
+                          title=tract_name
+                          )  
+  ad_plots[[t]] <- plt
+}
+```
+
+## Make RD plots
+```{r}
+covariates <- c('volume', 'vol_length_ratio', 'avg_streamline_length')
+cov_labels <- c('Volume', 'Density', 'Length')
+
+y <- 'rd_mean'
+x <- 'age'
+formula_na = as.formula(paste(y, paste(c(x), collapse='+'), sep=' ~'))
+ctrl <- lmrob.control(refine.tol=1e-5)
+
+rd_plots <- list()
+
+for (t in 1:length(tracts)) {
+  tract_name <- tracts[t]
+  tract <- df[structure == tract_name]
+  
+  m_na <- lmrob(formula_na, data=tract, control=ctrl)
+  
+  models_adj <- list()
+  
+  for (i in 1:length(covariates)) {
+    cova <- covariates[i]
+    formula_adj = as.formula(paste(y, paste(c(x, cova), collapse='+'), sep=' ~'))
+    m_adj <- lmrob(formula_adj, data=tract, control=ctrl)
+    summary(m_adj)
+    
+    models_adj[[i]] <- m_adj
+  }
+  
+  plt <- plot_rob_reg_with_morph(model=m_na, 
+                          models_adj=models_adj, 
+                          cov_labels=cov_labels, 
+                          xvar='age',
+                          xlabel='Age (years)',
+                          ylabel=bquote('RD ' (mm/s^2)),
+                          title=tract_name
+                          )  
+  rd_plots[[t]] <- plt
+}
+```
+
+```{r}
+plots <- cbind(as.vector(md_plots), 
+                as.vector(ad_plots), 
+                as.vector(rd_plots))
+```
+
+
+```{r}
+yaxis_title_size <- 8
+xaxis_title_size <- 8
+plots_step <- 8
+
+theme_fst_col <- theme(axis.text.y = element_text(size=5),
+                       axis.ticks.y = element_blank(),
+                       axis.title.y = element_blank(),
+                       axis.text.x = element_blank(),
+                       axis.ticks.x = element_blank(),
+                       axis.title.x = element_blank(),
+                       plot.margin = margin(r = 1) )
+
+bottom_left <- theme(axis.text.y = element_text(size=5),
+                     axis.ticks.y = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.x = element_text(size=5),
+                     axis.ticks.x = element_blank(),
+                     axis.title.x = element_text(size=xaxis_title_size),
+                     plot.margin = margin(r = 1) )
+
+
+inner_theme <- theme(axis.text.y = element_text(size=5),
+                     axis.ticks.y = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.x = element_blank(),
+                     axis.ticks.x = element_blank(),
+                     axis.title.x = element_blank(),
+                     plot.margin = margin(r = 1, l = 1) )
+
+bottom_inner_theme <- theme(axis.text.y = element_text(size=5),
+                     axis.ticks.y = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.x = element_text(size=5),
+                     axis.ticks.x = element_blank(),
+                     axis.title.x = element_text(size=xaxis_title_size),
+                     plot.margin = margin(r = 1, l = 1) )
+
+
+for (i in seq(1, nrow(plots)-1, 1)) {
+  # apply theme_fst_col to first plot
+  plots[i,][[1]] <- plots[i,][[1]] + theme_fst_col
+  
+  # apply inner_theme to second and third plots
+  plots[i,][[2]] <- plots[i,][[2]] + inner_theme
+  plots[i,][[3]] <- plots[i,][[3]] + inner_theme
+}
+
+# treat last row of plots of each of part the same
+for (i in seq(from=plots_step, to=nrow(plots), by=plots_step)) {
+  plots[i,][[1]] <- plots[i,][[1]] + bottom_left
+
+  # apply bottom_inner_theme to last two plots
+  plots[i,][[2]] <- plots[i,][[2]] + bottom_inner_theme
+  plots[i,][[3]] <- plots[i,][[3]] + bottom_inner_theme
+}
+
+
+for (i in 1:length(plots)) {
+  plots[[i]] <- plots[[i]] + theme(plot.title = element_text(size=8),
+                                  plot.margin = unit(c(0.1,0.15,0.1,0.15), "cm"))
+}
+
+# reduce each row of plots adding each with +
+reductions <- c()
+for (r in 1:nrow(plots)) {
+  reductions[[r]] <- reduce(plots[r,], `+`)
+}
+
+
+# stack triplets by reducing each with /
+for (i in seq(from=1, to=length(reductions), by=8)) {
+  to <- (i+8)-1
+  part <- (reduce(reductions[i:to], `/`) + plot_layout(guides="collect")) & theme(legend.position = "bottom")
+  ggsave(sprintf("%s.pdf",i),  # jpg, png, eps, tex, etc.
+       plot = part, # or an explicit ggplot object name,
+       width = 4, height = 8, 
+       units = "in", # other options c("in", "cm", "mm"), 
+       dpi = 300)
+}
+```
+
